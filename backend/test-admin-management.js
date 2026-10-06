@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict';
+import mongoose from 'mongoose';
+import request from 'supertest';
+import { startTestDatabase } from './test-support.js';
+import { analyticsFixture } from './analytics-test-fixture.js';
+import { createToken } from './src/utils/jwt.js';
+import * as M from './src/models/index.js';
+process.env.JWT_SECRET='admin-management-test-secret-not-production';
+const db=await startTestDatabase();let checks=0;
+const check=(condition,name)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
+try {
+ await mongoose.connect(db.uri);const {default:app}=await import('./src/app.js');const f=await analyticsFixture();
+ const api=(method,path,body,user=f.users.admin)=>{let r=request(app)[method]('/api'+path);if(user)r=r.set('Authorization','Bearer '+createToken(user));return body===undefined?r:r.send(body);};
+ for(const [method,path] of [['get','/admin/coupons'],['post','/admin/coupons'],['patch','/admin/coupons/'+new mongoose.Types.ObjectId()],['delete','/admin/coupons/'+new mongoose.Types.ObjectId()],['get','/admin/customers'],['get','/admin/customers/'+f.users.customer._id],['patch','/admin/customers/'+f.users.customer._id+'/status'],['get','/admin/settings'],['put','/admin/settings']]){
+  check((await api(method,path,{},null)).status===401,'anonymous denied '+method+' '+path);
+  for(const role of ['customer','employee'])check((await api(method,path,{},f.users[role])).status===403,role+' denied '+method+' '+path);
+ }
+ const coupon={code:'h&m20',description:'Test offer',discountType:'percentage',discountValue:20,minimumOrderValue:50,maximumDiscount:15,startDate:new Date(Date.now()-60000).toISOString(),expiryDate:new Date(Date.now()+86400000).toISOString(),usageLimit:1,status:'active'};
+ let r=await api('post','/admin/coupons',coupon);check(r.status===201&&r.body.coupon.code==='H&M20','admin creates normalised coupon');const id=r.body.coupon._id;
+ check((await api('post','/admin/coupons',coupon)).status===409,'duplicate coupon rejected');
+ for(const body of [{...coupon,discountValue:101},{...coupon,discountValue:true},{...coupon,usageLimit:1.5},{...coupon,expiryDate:coupon.startDate},{...coupon,startDate:'2026-02-30T00:00:00Z'},{...coupon,usageCount:999},{...coupon,status:''}])check((await api('post','/admin/coupons',body)).status===400,'invalid coupon rejected');
+ await M.Cart.create({user:f.users.customer._id,items:[{product:f.product._id,variant:f.variants[0]._id,quantity:1,unitPrice:100}]});
+ const address=await M.Address.create({user:f.users.customer._id,fullName:'Customer',phone:'9999999999',line1:'Test Road',city:'Test',state:'Test',postalCode:'123456'});
+ r=await api('post','/coupons/validate',{code:'H&M20'},f.users.customer);check(r.status===200&&r.body.discount===15,'admin coupon works in customer validation with cap');
+ r=await api('post','/orders',{couponCode:'H&M20',addressId:address._id,paymentMethod:'COD'},f.users.customer);check(r.status===201&&r.body.order.discount===15&&r.body.order.grandTotal===234,'admin-created coupon applied to real checkout');
+ const order=r.body.order;check((await M.Coupon.findById(id)).usageCount===1,'checkout increments coupon usage');
+ check((await api('delete','/admin/coupons/'+id)).status===409,'used coupon deletion blocked');
+ check((await api('patch','/admin/coupons/'+id,{code:'RENAMED'})).status===409,'used coupon rename blocked');
+ r=await api('get','/admin/coupons?search=H%26M20');check(r.body.rows[0].availability==='Exhausted','usage exhausted displayed');
+ r=await api('patch','/admin/coupons/'+id,{usageLimit:2,maximumDiscount:null,status:'inactive'});check(r.status===200&&r.body.coupon.usageCount===1&&r.body.coupon.maximumDiscount===undefined,'coupon edit preserves usage and clears cap');
+ await M.Cart.updateOne({user:f.users.customer._id},{items:[{product:f.product._id,variant:f.variants[0]._id,quantity:1,unitPrice:100}]});
+ check((await api('post','/coupons/validate',{code:'H&M20'},f.users.customer)).status===400,'inactive coupon denied at checkout');
+ r=await api('patch','/admin/coupons/'+id,{status:'active'});check(r.status===200,'coupon reactivated');
+ const disposable=await api('post','/admin/coupons',{...coupon,code:'UNUSED',discountType:'fixed',discountValue:10});check((await api('delete','/admin/coupons/'+disposable.body.coupon._id)).status===204,'unused coupon deleted');
+ await api('post','/admin/coupons',{...coupon,code:'EXPIRED',startDate:'2020-01-01T00:00:00Z',expiryDate:'2020-02-01T00:00:00Z'});
+ await api('post','/admin/coupons',{...coupon,code:'SCHEDULED',startDate:'2090-01-01T00:00:00Z',expiryDate:'2090-02-01T00:00:00Z'});
+ r=await api('get','/admin/coupons?limit=1&page=2');check(r.body.rows.length===1&&r.body.pagination.totalItems===3,'coupon pagination');
+ r=await api('get','/admin/coupons');check(r.body.rows.some(x=>x.availability==='Expired')&&r.body.rows.some(x=>x.availability==='Scheduled'),'expired and scheduled availability');
+ check((await api('get','/admin/coupons?page=0')).status===400,'invalid pagination blocked');
+ r=await api('get','/admin/customers');check(r.body.rows.length===2&&r.body.rows.find(x=>x._id===String(f.users.customer._id)).orders===10,'real customer counts and order counts exclude staff');
+ check(!JSON.stringify(r.body).includes('password'),'customer list omits password');
+ r=await api('get','/admin/customers/'+f.users.customer._id+'?limit=2');check(r.body.rows.length===2&&r.body.pagination.totalItems===10&&!JSON.stringify(r.body).includes('password'),'customer details and paginated history');
+ check((await api('get','/admin/customers/'+f.users.admin._id)).status===404,'staff cannot be read as customer');
+ check((await api('patch','/admin/customers/'+f.users.admin._id+'/status',{status:'blocked'})).status===404,'cannot block admin through customer API');
+ check((await api('patch','/admin/customers/'+f.users.customer._id+'/status',{status:'blocked',role:'admin'})).status===400,'role escalation field rejected');
+ r=await api('patch','/admin/customers/'+f.users.customer._id+'/status',{status:'blocked'});check(r.status===200,'customer blocked');
+ check((await api('get','/auth/me',undefined,f.users.customer)).status===401,'existing customer token blocked immediately');
+ r=await api('post','/auth/login',{email:f.users.customer.email,password:'AnalyticsTest123!'},null);check(r.status!==200,'blocked customer cannot log in');
+ r=await api('get','/admin/customers?status=blocked&search=Analytics%20customer');check(r.body.rows.length===1,'customer search/status filters');
+ await api('patch','/admin/customers/'+f.users.customer._id+'/status',{status:'active'});check((await api('get','/auth/me',undefined,f.users.customer)).status===200&&await M.Order.exists({_id:order._id}),'unblock restores access and preserves orders');
+ r=await api('get','/shop-settings',undefined,null);check(r.status===200&&r.body.settings.name==='Lavella Studio','public defaults before first save');
+ const settings={name:'Test Boutique',location:'Mumbai, India',email:'shop@example.test',phone:'+91 98765 43210'};
+ r=await api('put','/admin/settings',settings);check(r.status===200&&r.body.settings.name===settings.name,'settings saved');
+ r=await api('get','/shop-settings',undefined,null);check(r.body.settings.location===settings.location&&Object.keys(r.body.settings).length===4,'public settings reflect saved safe fields');
+ check((await api('get','/admin/settings')).body.settings.name===settings.name,'settings persist across requests');
+ for(const body of [{...settings,name:''},{...settings,email:'bad'},{...settings,phone:'bad'},{...settings,JWT_SECRET:'bad'}])check((await api('put','/admin/settings',body)).status===400,'invalid settings rejected');
+ console.log(`Admin management API: ${checks} assertions passed.`);
+} finally {if(mongoose.connection.readyState){await mongoose.connection.dropDatabase();await mongoose.disconnect();}await db.stop();}

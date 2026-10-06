@@ -1,0 +1,5 @@
+import { verifyToken } from '../utils/jwt.js'; import User from '../models/User.js';
+export async function protect(req, res, next) { try { const header = req.headers.authorization; if (!header?.startsWith('Bearer ')) return res.status(401).json({ message: 'Authentication token is required.' }); const { userId } = verifyToken(header.slice(7)); const user = await User.findById(userId); if (!user || user.status !== 'active') return res.status(401).json({ message: 'Authentication is not available for this account.' }); req.user = user; next(); } catch { return res.status(401).json({ message: 'Invalid or expired authentication token.' }); } }
+export const authorizeRoles = (...roles) => (req, res, next) => roles.includes(req.user?.role) ? next() : res.status(403).json({ message: 'You do not have permission to access this resource.' });
+// Public catalog reads may use a verified account to include admin-only records.
+export const optionalAuth = (req, res, next) => req.headers.authorization ? protect(req, res, next) : next();

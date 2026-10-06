@@ -1,0 +1,67 @@
+import { analyticsFixture } from './analytics-test-fixture.js';
+import { startTestDatabase } from './test-support.js';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import mongoose from 'mongoose';
+import { createServer } from 'vite';
+import * as M from './src/models/index.js';
+import { createToken } from './src/utils/jwt.js';
+process.env.JWT_SECRET = 'phase7-browser-test-secret-not-production';
+const testDatabase = await startTestDatabase();
+await mongoose.connect(testDatabase.uri);
+const { default: app } = await import('./src/app.js');
+const api = app.listen(5510, '127.0.0.1');
+const vite = await createServer({ server: { host: '127.0.0.1', port: 5180, strictPort: true, proxy: { '/api': 'http://127.0.0.1:5510' } } });
+await vite.listen();
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'clothing-phase7-chrome-'));
+const chromePath = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const chrome = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=9230', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
+let socket, checks = 0, sequence = 0;
+const pending = new Map(), runtimeErrors = [];
+const delay = ms => new Promise(r => setTimeout(r, ms));
+const check = (value, name) => { assert.ok(value, name); checks++; console.log(`PASS ${name}`); };
+const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, {resolve,reject}); socket.send(JSON.stringify({id,method,params})); });
+const evaluate = async expression => { const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if(r.exceptionDetails) throw new Error(r.exceptionDetails.text + ' ' + JSON.stringify(r.exceptionDetails.exception)); return r.result.value; };
+const until = async (expression, message) => { for(let i=0;i<100;i++){ if(await evaluate(expression)) return; await delay(100); } throw new Error(`Timed out: ${message}\n${await evaluate('document.body.innerText')}`); };
+const click = async label => { await until(`Array.from(document.querySelectorAll('button,a')).some(e=>e.textContent.trim()===${JSON.stringify(label)} && !e.disabled)`,label); await evaluate(`Array.from(document.querySelectorAll('button,a')).find(e=>e.textContent.trim()===${JSON.stringify(label)}).click()`); };
+const navigate = async route => { await send('Page.navigate', {url:`http://127.0.0.1:5180${route}`}); await delay(150); };
+try {
+  let tabs;
+  for(let i=0;i<50;i++){ try{ tabs=await (await fetch('http://127.0.0.1:9230/json')).json(); break;}catch{await delay(200);} }
+  assert.ok(tabs?.length,'Chrome remote debugging available');
+  socket = new WebSocket(tabs.find(t=>t.type==='page').webSocketDebuggerUrl);
+  await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject;});
+  socket.onmessage = ({data}) => { const msg=JSON.parse(data); if(msg.method==='Runtime.exceptionThrown') runtimeErrors.push(msg.params.exceptionDetails.text); const p=pending.get(msg.id);if(p){pending.delete(msg.id);if(msg.error) p.reject(new Error(msg.error.message)); else p.resolve(msg.result);} };
+  await send('Page.enable'); await send('Runtime.enable'); await send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  const f=await analyticsFixture();
+  const fill=async(selector,value)=>{await until(`!!document.querySelector(${JSON.stringify(selector)})`,selector);return evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});const proto=el.tagName==='SELECT'?HTMLSelectElement.prototype:el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`);};
+  const rowClick=async(name,label)=>evaluate(`(()=>{const row=Array.from(document.querySelectorAll('tbody tr')).find(r=>r.cells[0].textContent.trim()===${JSON.stringify(name)});Array.from(row.querySelectorAll('button')).find(b=>b.textContent===${JSON.stringify(label)}).click();})()`);
+  await navigate('/login');await fill('.auth-card input[type=email]','admin@analytics.test');await fill('.auth-card input[type=password]','AnalyticsTest123!');await evaluate("document.querySelector('.auth-card form').requestSubmit()");await until("location.pathname==='/admin'",'login');
+  await navigate('/admin/coupons');await until("document.body.innerText.includes('No matching coupons.')",'empty coupons');check(true,'empty coupon state');
+  const start=new Date(Date.now()-86400000).toISOString().slice(0,16),end=new Date(Date.now()+86400000).toISOString().slice(0,16);
+  const makeCoupon=async(code)=>{await fill('[name=code]',code);await fill('[name=discountValue]','20');await fill('[name=maximumDiscount]','15');await fill('[name=usageLimit]','5');await fill('[name=startDate]',start);await fill('[name=expiryDate]',end);await click('Create coupon');await until(`document.querySelector('tbody')?.innerText.includes(${JSON.stringify(code)}) && document.querySelector('.catalog-success')?.innerText==='Coupon created.'`,'coupon saved');};
+  await makeCoupon('BROWSER20');let coupon=await M.Coupon.findOne({code:'BROWSER20'});check(coupon?.discountValue===20,'browser creates real coupon');
+  await rowClick('BROWSER20','Edit');await fill('[name=discountValue]','25');await click('Save coupon');await until("document.querySelector('.catalog-success')?.innerText==='Coupon updated.' && !!document.querySelector('tbody')",'coupon edit');check((await M.Coupon.findById(coupon._id)).discountValue===25,'browser edits coupon');
+  await rowClick('BROWSER20','Deactivate');await until("document.querySelector('tbody')?.innerText.includes('Inactive')",'inactive coupon');check((await M.Coupon.findById(coupon._id)).status==='inactive','browser deactivates coupon');
+  await rowClick('BROWSER20','Activate');await until("document.querySelector('tbody')?.innerText.includes('Available')",'active coupon');check((await M.Coupon.findById(coupon._id)).status==='active','browser activates coupon');
+  await makeCoupon('DELETE-ME');await rowClick('DELETE-ME','Edit');await rowClick('DELETE-ME','Delete');await click('Keep coupon');check(Boolean(await M.Coupon.findOne({code:'DELETE-ME'})),'coupon delete cancellation');await rowClick('DELETE-ME','Delete');await click('Confirm delete');await until("document.querySelector('.catalog-success')?.innerText==='Coupon deleted.' && !!document.querySelector('tbody')",'coupon deleted');check(!await M.Coupon.findOne({code:'DELETE-ME'})&&await evaluate("document.querySelector('[name=code]').value===''") ,'unused coupon deleted and editor cleared');
+  await fill('[name=search]','NOT-FOUND');await click('Search coupons');await until("document.body.innerText.includes('No matching coupons.')",'search empty');check(true,'coupon search filters database');
+  await M.Address.create({user:f.users.customer._id,fullName:'Test Customer',phone:'9999999999',line1:'1 Browser Street',city:'Mumbai',state:'Maharashtra',postalCode:'400001',isDefault:true});
+  await M.Cart.create({user:f.users.customer._id,items:[{product:f.product._id,variant:f.variants[0]._id,quantity:1,unitPrice:100}]});
+  await evaluate(`localStorage.setItem('authToken',${JSON.stringify(createToken(f.users.customer))})`);await navigate('/customer/checkout');await until("!!document.querySelector('input[type=radio]')",'customer checkout');
+  await evaluate("(()=>{const el=Array.from(document.querySelectorAll('label')).find(l=>l.textContent.startsWith('Coupon code')).querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'BROWSER20');el.dispatchEvent(new Event('input',{bubbles:true}));})()");await click('Review checkout');await until("document.body.innerText.includes('234.00')",'discounted total');await click('Place order \u00b7 Cash on Delivery');await until("location.pathname.startsWith('/customer/orders/') && document.body.innerText.includes('Order placed')",'order placed');check((await M.Coupon.findById(coupon._id)).usageCount===1,'admin-created coupon works through browser checkout');
+  await evaluate(`localStorage.setItem('authToken',${JSON.stringify(createToken(f.users.admin))})`);await navigate('/admin/customers');await fill('[name=customerSearch]','Analytics customer');await click('Search customers');await until("document.querySelectorAll('tbody tr').length===1",'customer search');check(await evaluate("document.querySelector('tbody').innerText.includes('10')"),'customer real order count');await click('View customer');await until("document.body.innerText.includes('Order history') && document.querySelectorAll('table').length===2",'customer history');check(true,'customer profile and history displayed');
+  await click('Block');await click('Confirm status change');await until("document.querySelector('tbody')?.innerText.includes('Unblock')",'customer blocked');check((await M.User.findById(f.users.customer._id)).status==='blocked','browser blocks customer');
+  check((await fetch('http://127.0.0.1:5510/api/auth/me',{headers:{Authorization:'Bearer '+createToken(f.users.customer)}})).status===401,'blocked customer session denied');
+  await click('Unblock');await click('Confirm status change');await until("document.querySelector('tbody')?.innerText.includes('Block')",'unblocked');check((await M.User.findById(f.users.customer._id)).status==='active','browser unblocks customer');
+  await navigate('/admin/settings');await fill('[name=name]','Browser Boutique');await fill('[name=location]','Mumbai Central');await fill('[name=email]','hello@boutique.test');await click('Save settings');await until("document.querySelector('.catalog-success')?.innerText==='Shop settings saved.'",'settings saved');check(await evaluate("document.querySelector('.brand-block').innerText.includes('Browser Boutique')"),'settings update admin branding');
+  await navigate('/admin/settings');await until("document.querySelector('[name=name]')?.value==='Browser Boutique'",'settings persisted');check(true,'settings survive reload');
+  await evaluate(`(()=>{window.shopFetch=window.fetch;window.fetch=(url,options)=>String(url).includes('/admin/settings')&&options?.method==='PUT'?Promise.resolve(new Response(JSON.stringify({message:'Test save unavailable'}),{status:503})):window.shopFetch(url,options);})()`);await click('Save settings');await until("document.querySelector('[role=alert]')?.innerText==='Test save unavailable'",'settings save error');check(true,'settings save errors visible');await evaluate('window.fetch=window.shopFetch');await click('Save settings');await until("document.querySelector('.catalog-success')?.innerText==='Shop settings saved.'",'settings retry');
+  await navigate('/contact');await until("document.querySelector('.info-card')?.innerText.includes('Mumbai Central')",'public shop details');check(await evaluate("document.querySelector('.brand-name').innerText==='Browser Boutique' && document.querySelector('.info-card').innerText.includes('hello@boutique.test')"),'saved settings appear in storefront and contact info');
+  for(const route of ['/admin/coupons','/admin/customers','/admin/settings']){await navigate(route);await until("!!document.querySelector('.analytics-page') && !document.querySelector('.analytics-loading')",'admin page');await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});check(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'mobile layout '+route);}
+  for(const role of ['customer','employee']) {await evaluate(`localStorage.setItem('authToken',${JSON.stringify(createToken(f.users[role]))})`);for(const route of ['/admin/coupons','/admin/customers','/admin/settings']){await navigate(route);await until(`location.pathname==='/${role}'`,'role denied');check(true,role+' denied '+route);}}
+  check(runtimeErrors.length===0,'no browser JavaScript exceptions');console.log(`Admin management browser: ${checks} assertions passed.`);
+} finally {socket?.close();chrome.kill();await vite.close();await new Promise(r=>api.close(r));await mongoose.connection.dropDatabase();await mongoose.disconnect();await testDatabase.stop();}

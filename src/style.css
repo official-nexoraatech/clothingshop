@@ -1,0 +1,11 @@
+:root { font-family: Inter, system-ui, sans-serif; color: #24201f; background: #f8f5f1; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.page { min-height: 100vh; display: grid; place-items: center; padding: 2rem; }
+.hero { max-width: 42rem; padding: 4rem; background: #fff; border-radius: 1.25rem; box-shadow: 0 1.25rem 3.75rem #3b29201c; }
+.eyebrow { margin: 0; color: #a95833; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; font-size: .75rem; }
+h1 { font-family: Georgia, serif; font-size: clamp(2.5rem, 8vw, 5rem); line-height: 1; margin: .75rem 0 1rem; }
+.intro { color: #615957; font-size: 1.1rem; line-height: 1.6; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; margin-top: 2rem; }
+button { border: 0; border-radius: .55rem; padding: .8rem 1rem; background: #24201f; color: #fff; cursor: pointer; font: inherit; font-weight: 700; }
+#api-status { color: #615957; }

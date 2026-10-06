@@ -1,0 +1,15 @@
+import { Router } from 'express';
+import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
+import * as c from '../controllers/adminManagementController.js';
+const router = Router();
+router.use(['/coupons','/customers','/settings'], protect, authorizeRoles('admin'));
+router.get('/coupons', c.listCoupons);
+router.post('/coupons', c.createCoupon);
+router.patch('/coupons/:id', c.updateCoupon);
+router.delete('/coupons/:id', c.deleteCoupon);
+router.get('/customers', c.listCustomers);
+router.get('/customers/:id', c.getCustomer);
+router.patch('/customers/:id/status', c.setCustomerStatus);
+router.get('/settings', c.getShopSettings);
+router.put('/settings', c.saveShopSettings);
+export default router;

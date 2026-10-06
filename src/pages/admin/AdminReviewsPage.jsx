@@ -1,0 +1,10 @@
+import { useState } from 'react';
+import { useAuth } from '../../context/authState';
+import { useAdminData } from '../../hooks/useAdminData';
+export default function AdminReviewsPage() {
+  const { request } = useAuth(), [page, setPage] = useState(1), [filter, setFilter] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const list = useAdminData('/admin/reviews?' + new URLSearchParams({ page, status: filter }));
+  const update = async (id, status) => { setBusy(true); setError(''); try { await request('/reviews/' + id, { method: 'PATCH', body: JSON.stringify({ status }) }); list.retry(); } catch (failure) { setError(failure.message); } finally { setBusy(false); } };
+  const statuses = ['Submitted','Approved','Hidden','Rejected'];
+  return <div className="page-content container-inner"><h3>Reviews</h3><label>Filter status<select value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}><option value="">All</option>{statuses.map(s => <option key={s}>{s}</option>)}</select></label>{(error || list.error) && <div role="alert"><p className="form-error">{error || list.error}</p><button onClick={list.retry}>Retry</button></div>}{list.loading ? <p role="status">Loading reviews…</p> : <div className="table-wrap"><table><thead><tr><th>Product</th><th>Customer</th><th>Rating</th><th>Review</th><th>Status</th></tr></thead><tbody>{list.data?.reviews.map(r => <tr key={r._id}><td>{r.product?.name}</td><td>{r.user?.name}</td><td>{r.rating}/5</td><td>{r.text}</td><td><select aria-label={'Review status for ' + (r.product?.name || 'product')} value={r.status} disabled={busy} onChange={e => update(r._id, e.target.value)}>{statuses.map(s => <option key={s}>{s}</option>)}</select></td></tr>)}{list.data && !list.data.reviews.length && <tr><td colSpan={5}>No reviews found.</td></tr>}</tbody></table></div>}<div className="row-between"><button disabled={page === 1 || list.loading} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page}</span><button disabled={list.loading || page >= (list.data?.pagination.totalPages || 1)} onClick={() => setPage(page + 1)}>Next</button></div></div>;
+}
