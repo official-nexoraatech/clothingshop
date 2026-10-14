@@ -15,6 +15,7 @@ const app = express();
 app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
 app.use(express.json({ limit: '10kb' }));
 app.use('/uploads', express.static(path.resolve('backend', 'uploads'), { setHeaders: res => res.set('X-Content-Type-Options', 'nosniff') }));
+app.get('/', (_req, res) => res.json({ message: 'Clothing Shop Backend API is running successfully' }));
 app.get('/health', (_req, res) => { const connected = mongoose.connection.readyState === 1; res.status(connected ? 200 : 503).json({ status: connected ? 'ok' : 'unavailable', database: connected ? 'connected' : 'disconnected' }); });
 app.get('/api/shop-settings', getShopSettings);
 app.use('/api/admin', adminManagementRoutes);
