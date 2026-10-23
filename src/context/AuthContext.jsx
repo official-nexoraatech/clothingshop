@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AuthContext } from './authState';
 
-const API = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+const API = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '').replace(/\/api$/, '') + '/api';
 async function request(path, { responseType, ...options } = {}) {
   const token = localStorage.getItem('authToken');
   let response;
