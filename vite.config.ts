@@ -6,8 +6,14 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:5000',
-      '/uploads': 'http://localhost:5000',
+      '/api': {
+        target: 'https://clothingshop-fafa.onrender.com',
+        changeOrigin: true,
+      },
+      '/uploads': {
+        target: 'https://clothingshop-fafa.onrender.com',
+        changeOrigin: true,
+      },
     },
   },
 })

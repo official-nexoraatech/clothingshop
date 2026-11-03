@@ -3,6 +3,7 @@ import { useShop } from '../context/shopState';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/authState';
+import brandMark from '../assets/brand-mark.svg';
 
 export function AnnouncementBar() {
   return (
@@ -30,10 +31,10 @@ export function Navbar() {
     <header className="top-header">
       <div className="container nav-container">
         <Link to="/" className="brand-logo">
-          <span className="brand-mark">{settings?.name?.[0] || 'S'}</span>
+          <img className="brand-mark" src={brandMark} alt="" />
           <div>
-            <span className="brand-name">{settings?.name || 'Shop'}</span>
-            <small>Clothing store</small>
+            <span className="brand-name">{settings?.name || 'Lavella Studio'}</span>
+            <small>Modern clothing</small>
           </div>
         </Link>
 

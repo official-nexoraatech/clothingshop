@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AuthContext } from './authState';
+import { API_BASE_URL } from '../utils/apiConfig';
 
-const API = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '').replace(/\/api$/, '') + '/api';
 async function request(path, { responseType, ...options } = {}) {
   const token = localStorage.getItem('authToken');
   let response;
   try {
-    response = await fetch(`${API}${path}`, { ...options, signal: options.signal || AbortSignal.timeout(30000), headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers } });
+    response = await fetch(`${API_BASE_URL}${path}`, { ...options, signal: options.signal || AbortSignal.timeout(90000), headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers } });
   } catch (error) { throw new Error(error.name === 'TimeoutError' ? 'The request timed out. Please try again.' : 'Unable to reach the server. Please try again.'); }
   if (response.status === 401 && token && !['/auth/login', '/auth/register'].includes(path) && localStorage.getItem('authToken') === token) {
     localStorage.removeItem('authToken');
