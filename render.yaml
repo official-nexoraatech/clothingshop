@@ -3,7 +3,7 @@ services:
   - type: web
     name: clothing-shop-fullstack
     runtime: node
-    plan: starter
+    plan: free
 
     buildCommand: npm install && npm run build
     startCommand: npm run server
