@@ -1,0 +1,4 @@
+import mongoose from 'mongoose'; import { Schema, ref } from './helpers.js';
+const item = new Schema({ product: ref('Product', { required: true }), variant: ref('ProductVariant', { required: true }), quantity: { type: Number, required: true, min: 1, validate: { validator: Number.isInteger, message: 'Quantity must be an integer.' } }, unitPrice: { type: Number, required: true, min: 0 } }, { _id: true });
+const schema = new Schema({ user: ref('User', { required: true, unique: true }), items: { type: [item], default: [], validate: { validator: (items) => new Set(items.map(({ product, variant }) => `${product}:${variant}`)).size === items.length, message: 'A cart can contain only one entry for each product variant.' } } }, { timestamps: true, collection: 'carts' });
+export default mongoose.models.Cart || mongoose.model('Cart', schema);

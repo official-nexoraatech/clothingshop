@@ -1,0 +1,44 @@
+﻿# Assumes the folder containing package.json is the GitHub repository root.
+# If pushing the outer workspace, set rootDir on BOTH services (see docs).
+services:
+  - type: web
+    name: clothing-shop-api
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm run server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CLIENT_URL
+        sync: false
+      - key: AUTH_RATE_LIMIT
+        value: "20"
+      - key: PHASE9_RATE_LIMIT
+        value: "30"
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      # Add optional SMTP_* values in the dashboard when enabling email.
+  - type: web
+    name: clothing-shop-frontend
+    runtime: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

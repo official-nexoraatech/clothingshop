@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { readdir, writeFile, mkdir } from 'node:fs/promises';
+import express from 'express';
+import multer from 'multer';
+import mongoose from 'mongoose';
+import request from 'supertest';
+import { SMTPServer } from 'smtp-server';
+import { startTestDatabase } from './test-support.js';
+process.env.NODE_ENV='test';
+process.env.JWT_SECRET='service-test-secret-never-for-production';
+process.env.AUTH_RATE_LIMIT='200';
+const received=[];let rejectMail=false, rejectUpload=false, receivedUpload;
+const smtp=new SMTPServer({disabledCommands:['AUTH','STARTTLS'],authOptional:true,logger:false,
+  onData(stream,session,callback){let body='';stream.on('data',chunk=>body+=chunk.toString());stream.on('end',()=>{
+    if(rejectMail)return callback(Object.assign(new Error('Sandbox rejects this message'),{responseCode:451}));
+    received.push({body,to:session.envelope.rcptTo.map(item=>item.address)});callback();
+  });}
+});
+await new Promise(resolve=>smtp.listen(0,'127.0.0.1',resolve));
+process.env.SMTP_HOST='127.0.0.1';process.env.SMTP_PORT=String(smtp.server.address().port);
+process.env.SMTP_SECURE='false';process.env.SMTP_USER='';process.env.SMTP_PASS='';process.env.SMTP_FROM='Shop Test <shop@local.test>';
+const uploadApp=express();
+uploadApp.post('/v1_1/sandbox/image/upload',multer({storage:multer.memoryStorage()}).single('file'),(req,res)=>{
+  receivedUpload={body:req.body,file:req.file};
+  if(rejectUpload)return res.status(503).json({error:{message:'Sandbox image service unavailable'}});
+  res.json({public_id:'sandbox/test-image',secure_url:'https://images.local.test/test-image.png',resource_type:'image'});
+});
+const uploadServer=await new Promise(resolve=>{const server=uploadApp.listen(0,'127.0.0.1',()=>resolve(server));});
+process.env.CLOUDINARY_CLOUD_NAME='sandbox';process.env.CLOUDINARY_API_KEY='sandbox-key';process.env.CLOUDINARY_API_SECRET='sandbox-secret';
+process.env.CLOUDINARY_URL='cloudinary://sandbox-key:sandbox-secret@sandbox?upload_prefix='+encodeURIComponent('http://127.0.0.1:'+uploadServer.address().port);
+const database=await startTestDatabase();await mongoose.connect(database.uri);
+const M=await import('./src/models/index.js');for(const model of Object.values(M))await model.init();
+const {default:app}=await import('./src/app.js');
+const {createToken}=await import('./src/utils/jwt.js');
+const {cloudinary}=await import('./src/config/cloudinary.js');
+const {hashResetToken}=await import('./src/utils/auth.js');
+const outcomes=[];const check=(value,label)=>{assert.ok(value,label);outcomes.push(label);console.log('PASS '+label);};
+try {
+  const user=await M.User.create({name:'SMTP Buyer',email:'smtp-buyer@local.test',password:'TestPass123!'});
+  let result=await request(app).post('/api/auth/forgot-password').send({email:user.email});
+  check(result.status===200&&received.length===1,'password reset delivered through real local SMTP transport');
+  check(received[0].to[0]===user.email,'SMTP envelope targets requested test account');
+  check(!result.body.developmentResetToken,'configured SMTP response does not expose reset token');
+  const decoded=received[0].body.replace(/=\r?\n/g,'').replace(/=3D/g,'=');
+  const rawToken=decoded.match(/[?&]token=([a-f0-9]{64})/)?.[1];
+  check(Boolean(rawToken)&&await M.PasswordResetToken.exists({user:user.id,tokenHash:hashResetToken(rawToken)}),'delivered link matches hashed one-time reset record');
+  result=await request(app).post('/api/auth/reset-password').send({token:rawToken,password:'ChangedPass123!',confirmPassword:'ChangedPass123!'});
+  check(result.status===200,'delivered SMTP reset link changes password');
+  result=await request(app).post('/api/auth/reset-password').send({token:rawToken,password:'ChangedAgain123!'});
+  check(result.status===400,'delivered reset token cannot be reused');
+  rejectMail=true;
+  result=await request(app).post('/api/auth/forgot-password').send({email:user.email});
+  check(result.status===500&&!result.text.includes('Sandbox rejects'),'SMTP delivery failure returns safe API error');
+  check(await M.PasswordResetToken.countDocuments({user:user.id,usedAt:null})===0,'failed SMTP delivery removes unusable reset record');
+  rejectMail=false;
+  result=await request(app).post('/api/auth/forgot-password').send({email:user.email});
+  check(result.status===200&&received.length===2,'SMTP recovery succeeds');
+  const admin=await M.User.create({name:'Upload Admin',email:'upload-admin@local.test',password:'TestPass123!',role:'admin'});
+  const category=await M.Category.create({name:'Upload Category'}),brand=await M.Brand.create({name:'Upload Brand'});
+  const product=await M.Product.create({name:'Upload Shirt',slug:'upload-shirt',description:'Test upload',category:category.id,brand:brand.id,price:100,status:'active'});
+  const before=await readdir('backend/uploads');
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+  const upload=()=>request(app).post('/api/products/'+product.id+'/images').set('Authorization','Bearer '+createToken(admin)).attach('images',png,{filename:'test.png',contentType:'image/png'});
+  result=await upload();
+  check(result.status===201,'Cloudinary SDK upload completes against local contract server');
+  check(receivedUpload.file.buffer.equals(png),'Cloudinary SDK sends actual image bytes');
+  check(receivedUpload.body.api_key==='sandbox-key'&&!receivedUpload.body.api_secret,'SDK sends API key without exposing API secret');
+  check(receivedUpload.body.signature===cloudinary.utils.api_sign_request({folder:receivedUpload.body.folder,timestamp:receivedUpload.body.timestamp},'sandbox-secret'),'SDK upload carries expected signature');
+  check(result.body.images[0].url==='https://images.local.test/test-image.png','cloud response URL persisted in product');
+  check(JSON.stringify(await readdir('backend/uploads'))===JSON.stringify(before),'cloud upload removes local staging file');
+  rejectUpload=true;result=await upload();
+  check(result.status===500,'cloud transport failure reported safely');
+  check((await M.Product.findById(product.id)).images.length===1,'failed cloud upload preserves existing images');
+  check(JSON.stringify(await readdir('backend/uploads'))===JSON.stringify(before),'failed cloud upload cleans staging file');
+  rejectUpload=false;result=await upload();check(result.status===201,'cloud contract endpoint recovery succeeds');
+  await mkdir('test-results',{recursive:true});
+  await writeFile('test-results/service-integration.json',JSON.stringify({checks:outcomes.length,outcomes,smtp:'real local SMTP delivery',cloudinary:'real SDK against local contract server; not a live Cloudinary account'},null,2));
+  console.log('Service integration: '+outcomes.length+' assertions passed.');
+} finally {
+  await mongoose.connection.dropDatabase();await mongoose.disconnect();await database.stop();
+  await new Promise(resolve=>smtp.close(resolve));await new Promise(resolve=>uploadServer.close(resolve));
+}

@@ -1,0 +1,2 @@
+import mongoose from 'mongoose'; import { Schema } from './helpers.js';
+const schema = new Schema({ name: { type: String, required: true, trim: true, unique: true, maxlength: 100 }, description: { type: String, trim: true, maxlength: 1000 }, image: String, status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true } }, { timestamps: true, collection: 'categories' }); export default mongoose.models.Category || mongoose.model('Category', schema);

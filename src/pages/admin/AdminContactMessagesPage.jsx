@@ -1,0 +1,9 @@
+import { useState } from 'react';
+import { useAuth } from '../../context/authState';
+import { useAdminData } from '../../hooks/useAdminData';
+export default function AdminContactMessagesPage() {
+  const { request } = useAuth(), [page, setPage] = useState(1), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const list = useAdminData('/admin/contact-messages?page=' + page);
+  const update = async (id, status) => { setBusy(true); setError(''); try { await request('/admin/contact-messages/' + id, { method: 'PATCH', body: JSON.stringify({ status }) }); list.retry(); } catch (failure) { setError(failure.message); } finally { setBusy(false); } };
+  return <div className="page-content container-inner"><h3>Contact messages</h3>{(error || list.error) && <div role="alert"><p className="form-error">{error || list.error}</p><button onClick={list.retry}>Retry</button></div>}{list.loading ? <p role="status">Loading messages…</p> : <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Email</th><th>Subject</th><th>Message</th><th>Status</th></tr></thead><tbody>{list.data?.messages.map(m => <tr key={m._id}><td>{m.name}</td><td>{m.email}</td><td>{m.subject}</td><td>{m.message}</td><td><select aria-label={'Status for ' + m.subject} value={m.status} disabled={busy} onChange={e => update(m._id, e.target.value)}>{['New','In Progress','Resolved','Closed'].map(s => <option key={s}>{s}</option>)}</select></td></tr>)}{list.data && !list.data.messages.length && <tr><td colSpan={5}>No contact messages.</td></tr>}</tbody></table></div>}<div className="row-between"><button disabled={page === 1 || list.loading} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page}</span><button disabled={list.loading || page >= (list.data?.pagination.totalPages || 1)} onClick={() => setPage(page + 1)}>Next</button></div></div>;
+}

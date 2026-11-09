@@ -1,0 +1,2 @@
+import mongoose from 'mongoose'; import { Schema } from './helpers.js';
+const schema = new Schema({ name: { type: String, required: true, trim: true, unique: true, maxlength: 100 }, description: { type: String, trim: true, maxlength: 1000 }, logo: String, status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true } }, { timestamps: true, collection: 'brands' }); export default mongoose.models.Brand || mongoose.model('Brand', schema);
