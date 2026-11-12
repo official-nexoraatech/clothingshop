@@ -1,6 +1,6 @@
 import './style.css';
 
-const apiBase = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '').replace(/\/api$/, '');
+const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 document.querySelector<HTMLDivElement>('#root')!.innerHTML = `
   <main class="page">

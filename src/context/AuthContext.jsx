@@ -15,8 +15,21 @@ async function request(path, { responseType, ...options } = {}) {
   if (response.ok && responseType === 'blob') return response.blob();
   const text = response.status === 204 ? '' : await response.text();
   let data;
-  try { data = text ? JSON.parse(text) : {}; } catch { throw new Error('The server returned an unexpected response. Please try again.'); }
-  if (!response.ok) { const error = new Error(data.message || 'Request failed. Please try again.'); error.status = response.status; throw error; }
+  try { data = text ? JSON.parse(text) : {}; } catch {
+    const error = new Error(`The request to ${path} returned a non-JSON response (HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}).`);
+    error.status = response.status;
+    error.path = path;
+    throw error;
+  }
+  if (!response.ok) {
+    const message = typeof data.message === 'string' && data.message.trim()
+      ? data.message
+      : `The request to ${path} failed (HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}).`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.path = path;
+    throw error;
+  }
   return data;
 }
 export function AuthProvider({ children }) {

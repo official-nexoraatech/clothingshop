@@ -13,6 +13,7 @@ export default function CustomerWishlistPage() {
       await request('/wishlist/' + id + (move ? '/move-to-cart' : ''), move
         ? { method: 'POST', body: JSON.stringify({ variantId: choices[id] }) }
         : { method: 'DELETE' });
+      if (move) window.dispatchEvent(new Event('cart-updated'));
       setNotice(move ? 'Moved to cart.' : 'Removed from wishlist.'); list.retry();
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
@@ -22,7 +23,7 @@ export default function CustomerWishlistPage() {
     {(error || list.error) && <div role="alert"><p className="form-error">{error || list.error}</p><button onClick={() => { setError(''); list.retry(); }}>Retry</button></div>}
     {list.loading ? <p role="status">Loading wishlist...</p> : <div className="product-grid product-grid-compact">
       {list.data?.products.map(item => <div key={item._id} className="product-card">
-        <div className="product-image-wrap"><img src={item.images?.[0]?.url || '/product-placeholder.svg'} alt={item.name} /></div>
+        <div className="product-image-wrap"><img src={item.images?.[0]?.url || '/product-placeholder.svg'} alt={item.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/product-placeholder.svg'; }} /></div>
         <div className="product-card-body"><h4>{item.name}</h4><strong>₹{(item.price * (1 - (item.discount || 0) / 100)).toFixed(2)}</strong>
           <label>Size and colour for {item.name}<select value={choices[item._id] || ''} disabled={busy} onChange={e => setChoices({ ...choices, [item._id]: e.target.value })}>
             <option value="">Choose a variant</option>
