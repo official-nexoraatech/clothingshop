@@ -1,4 +1,4 @@
-﻿export function errorHandler(error, _req, res, _next) {
+﻿export function errorHandler(error, req, res, _next) {
   if (error.type === 'entity.parse.failed') return res.status(400).json({ message: 'Request body must contain valid JSON.' });
   if (error.type === 'entity.too.large') return res.status(413).json({ message: 'Request body is too large.' });
   if (error.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ message: 'Each image must be 5 MB or smaller.' });
