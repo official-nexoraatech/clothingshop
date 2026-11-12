@@ -12,7 +12,14 @@ import shoppingRoutes from './routes/shoppingRoutes.js';
 import phase9Routes from './routes/phase9Routes.js';
 import { errorHandler } from './middleware/errorMiddleware.js';
 const app = express();
+
+// Trust the nearest Render proxy in production.
+if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
+
 app.use(express.json({ limit: '10kb' }));
 app.use('/uploads', express.static(path.resolve('backend', 'uploads'), { setHeaders: res => res.set('X-Content-Type-Options', 'nosniff') }));
 app.get('/', (_req, res) => res.json({ message: 'Clothing Shop Backend API is running successfully' }));

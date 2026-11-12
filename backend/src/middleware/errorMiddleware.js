@@ -10,6 +10,13 @@
   if (error.name === 'CastError') return res.status(400).json({ message: 'Invalid identifier or value.' });
   const status = error.statusCode || error.status;
   if (status >= 400 && status < 500) return res.status(status).json({ message: error.message });
-  console.error('Request failed:', error.name || 'Error');
+  // Avoid logging error messages: transport errors can contain credentials.
+  console.error('Request failed:', {
+    method: req.method,
+    path: req.path,
+    status: status || 500,
+    name: error.name || 'Error',
+    code: error.code || error.responseCode || undefined,
+  });
   return res.status(500).json({ message: 'Something went wrong. Please try again.' });
 }

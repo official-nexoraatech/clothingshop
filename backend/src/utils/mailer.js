@@ -1,9 +1,23 @@
 import nodemailer from 'nodemailer';
 
-export const isMailConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_FROM);
+export const isMailConfigured = () => Boolean(
+  process.env.SMTP_HOST?.trim() &&
+  process.env.SMTP_FROM?.trim() &&
+  (!process.env.SMTP_USER || process.env.SMTP_PASS)
+);
+
+export function getMailConfigurationStatus() {
+  return {
+    host: Boolean(process.env.SMTP_HOST?.trim()),
+    from: Boolean(process.env.SMTP_FROM?.trim()),
+    user: Boolean(process.env.SMTP_USER?.trim()),
+    password: Boolean(process.env.SMTP_PASS),
+    authenticationComplete: !process.env.SMTP_USER || Boolean(process.env.SMTP_PASS),
+  };
+}
 
 export async function sendPasswordResetEmail({ email, resetUrl }) {
-  if (!isMailConfigured()) throw new Error('SMTP is not configured. Set SMTP_HOST and SMTP_FROM to send password reset emails.');
+  if (!isMailConfigured()) throw new Error('SMTP configuration is incomplete. Check SMTP_HOST, SMTP_FROM, SMTP_USER, and SMTP_PASS.');
 
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
