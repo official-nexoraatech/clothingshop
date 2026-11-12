@@ -91,17 +91,15 @@ export function Navbar() {
           <NavLink to="/about" onClick={() => setMenuOpen(false)} className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>About</NavLink>
         </nav>
 
-        <div className={`nav-tools ${menuOpen ? 'is-open' : ''}${user ? ' has-user' : ''}`}>
-          <form className="nav-search" onSubmit={submitSearch} role="search">
-            <svg className="nav-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.2 4.2" /></svg>
-            <input className="search-box" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products" aria-label="Search products" />
-          </form>
-          <div className={`nav-actions${user ? ' is-authenticated' : ''}`}>
+        <form className="nav-search" onSubmit={submitSearch} role="search">
+          <svg className="nav-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.2 4.2" /></svg>
+          <input className="search-box" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products" aria-label="Search products" />
+        </form>
+        <div className={`nav-actions${user ? ' is-authenticated' : ''}`}>
           <Link to="/customer/wishlist" className="icon-button nav-tool-link wishlist-nav-link" aria-label="Wishlist"><svg className="wishlist-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78Z" /></svg><span className="nav-tool-label">Wishlist</span></Link>
           <Link to="/customer/cart" className="icon-button nav-tool-link nav-bag" aria-label={`Shopping bag, ${cartCount} items`}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 13H4L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg><span className="nav-tool-label">Bag</span>{user?.role === 'customer' && <span className="cart-count">{cartCount}</span>}</Link>
           {user && <Link to={user.role === 'admin' ? '/admin/notifications' : user.role === 'employee' ? '/employee/notifications' : '/customer/notifications'} className="icon-button nav-tool-link nav-alert-link" aria-label={`Alerts, ${unread} unread`}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span className="nav-tool-label">Alerts</span>{unread > 0 && <span className="alert-count">{unread}</span>}</Link>}
           {user ? <Link to={user.role === 'admin' ? '/admin' : user.role === 'employee' ? '/employee' : '/customer'} className="account-link nav-tool-link"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/></svg><span className="nav-tool-label">Account</span></Link> : <Link to="/login" className="account-link nav-tool-link"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/></svg><span className="nav-tool-label">Sign in</span></Link>}
-          </div>
           {user && <button type="button" className="primary-button nav-logout" onClick={async () => { await logout(); navigate('/login'); }}>Logout</button>}
         </div>
       </div>
